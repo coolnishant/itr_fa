@@ -206,9 +206,10 @@ itr_fa/
 │   └── excel_export.py             # openpyxl Excel generation
 │
 ├── data/                           # Runtime data (gitignored)
-│   ├── sbi_rates_cache.json        # Cached SBI rates
-│   └── portfolios/                 # Saved user portfolios
-│       └── portfolio_CY2024.json
+│   ├── sbi_rates_cache.json        # Cached SBI rates (shared)
+│   └── portfolios/                 # User-scoped portfolios
+│       └── [Username]/             
+│           └── portfolio_CY2024.json
 │
 ├── static/
 │   ├── css/
@@ -226,26 +227,27 @@ itr_fa/
 
 | Method | Route | Purpose |
 |---|---|---|
-| GET | `/` | Serve main HTML page |
+| GET | `/api/users` | List all available user profiles |
+| POST | `/api/users` | Create a new user profile |
+| PUT | `/api/users/<name>` | Rename a user profile |
+| DELETE | `/api/users/<name>` | Delete a user profile and all their data |
 | POST | `/api/lookup-stock` | Fetch company info by ticker via yfinance |
-| GET | `/api/sbi-rate?date=YYYY-MM-DD&currency=USD` | Get SBI TTBR for last working day of prev month |
-| GET | `/api/stock-price?ticker=QCOM&date=YYYY-MM-DD` | Get close price on a date |
-| POST | `/api/calculate` | Calculate all A3 rows from portfolio JSON |
-| POST | `/api/export-excel` | Generate and download Excel file |
-| POST | `/api/save` | Save portfolio JSON to disk |
-| GET | `/api/load?year=2024` | Load saved portfolio JSON |
-| GET | `/api/list-saves` | List all saved portfolio files |
+| GET | `/api/sbi-rate` | Get SBI TTBR for last working day of prev month |
+| POST | `/api/save?username=Default` | Save portfolio JSON (user-scoped) |
+| GET | `/api/load?year=2024&username=Default` | Load saved portfolio JSON |
+| GET | `/api/list-saves?username=Default` | List all saved portfolio files for a user |
 | POST | `/api/fetch-sbi-rates` | Bulk download & cache SBI rates CSV |
-| GET | `/api/monthly-rates?year=2024&currency=USD` | Fetch all 12 monthly rates for a specific calendar year |
-| POST | `/api/save-manual-rate` | Save manual user override for a specific month's rate |
-| GET | `/api/dividends?ticker=QCOM&year=2024` | Auto-fetch dividends for UI pre-population |
+| GET | `/api/monthly-rates` | Fetch 12 monthly rates for a specific year |
+| POST | `/api/save-manual-rate` | Save manual user override for a month |
+| GET | `/api/dividends` | Auto-fetch dividends for UI pre-population |
 
 ---
 
 ## 9. FRONTEND UI DESIGN
 
 ### Layout
-- **Header**: App title, year selector dropdown, action buttons (Save, Load, Import Previous Year, Export Excel)
+- **User Selection Screen**: Initial full-screen overlay to pick user and calendar year
+- **Header**: App title, active user display, Switch User button, Save/Load/Export buttons
 - **Add Stock Section**: Ticker input + Lookup button
 - **Stock Cards** (one per stock): Collapsible, containing:
   - Company info fields (editable)
