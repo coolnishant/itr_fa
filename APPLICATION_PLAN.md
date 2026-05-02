@@ -146,6 +146,13 @@ divs = t.dividends
         "zip": "92121",
         "nature": "Company"
       },
+      "dividends": [
+        {
+          "id": "div_uuid",
+          "ex_date": "2024-03-01",
+          "amount": 0.75
+        }
+      ],
       "lots": [
         {
           "id": "lot_uuid",
@@ -229,6 +236,9 @@ itr_fa/
 | GET | `/api/load?year=2024` | Load saved portfolio JSON |
 | GET | `/api/list-saves` | List all saved portfolio files |
 | POST | `/api/fetch-sbi-rates` | Bulk download & cache SBI rates CSV |
+| GET | `/api/monthly-rates?year=2024&currency=USD` | Fetch all 12 monthly rates for a specific calendar year |
+| POST | `/api/save-manual-rate` | Save manual user override for a specific month's rate |
+| GET | `/api/dividends?ticker=QCOM&year=2024` | Auto-fetch dividends for UI pre-population |
 
 ---
 
@@ -241,11 +251,13 @@ itr_fa/
   - Company info fields (editable)
   - Lots table (buy date, qty, price, add/remove)
   - Per-lot sells table (sell date, qty, price, add/remove)
+  - **Dividends section**: Table of auto-fetched dividends, fully editable by user
   - Skip dividends toggle
 - **Results Section**: Full A3 table preview
   - Each calculated cell has a pencil icon → click to override manually
   - Override values shown in amber; calculated in default color
-- **SBI Rates Panel**: Collapsible section showing all SBI rates used, with override option
+- **Per-Stock Dividend Summary**: Displays an aggregated total of dividends calculated for each stock
+- **SBI Rates Panel**: Collapsible section showing all 12 monthly rates for any selected year, allowing full manual edits
 
 ### Styling
 - Dark mode: bg `#0f1117`, cards `#1a1d28`, accent `#6366f1` (indigo)
