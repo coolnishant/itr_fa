@@ -54,6 +54,7 @@ Each row = one acquisition lot of a foreign stock/ETF.
 ### Source
 GitHub repo: `sahilgupta/sbi-fx-ratekeeper`
 Raw CSV URL: `https://raw.githubusercontent.com/sahilgupta/sbi-fx-ratekeeper/main/csv_files/SBI_REFERENCE_RATES_USD.csv`
+For GBP: `https://raw.githubusercontent.com/sahilgupta/sbi-fx-ratekeeper/main/csv_files/SBI_REFERENCE_RATES_GBP.csv`
 
 ### CSV Format (verified)
 ```
