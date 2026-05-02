@@ -440,16 +440,7 @@ Run: `python app.py`
 
 ---
 
-
-The user provided an A3 screenshot with these rows (CY 2024 likely):
-
-| Sl | Country | Entity | Address | Zip | Nature | Acquire Date | Initial ₹ | Peak ₹ | Closing ₹ | Dividends ₹ | Sale ₹ |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-
-
----
-
-## 16. NOTES FOR CONTINUING AGENTS
+## 15. NOTES FOR CONTINUING AGENTS
 
 1. **SBI CSV is large** (~1600 lines for USD). Download once and cache in `data/sbi_rates_cache.json`.
 2. **yfinance may be slow** on first call. Cache company info in the portfolio JSON.
