@@ -33,7 +33,12 @@ def _format_date_display(date_str: str) -> str:
 def _get_rate_value(d: date, overrides: dict) -> tuple:
     """Get SBI TT rate value and metadata (USD only)."""
     result = get_sbi_tt_rate(d, overrides)
-    return result.get("rate"), result.get("rate_date"), result.get("source")
+    rate = result.get("rate")
+    if rate is None or rate == 0:
+        rate_date_str = result.get("rate_date")
+        month_name = date.fromisoformat(rate_date_str).strftime("%B %Y")
+        raise ValueError(f"SBI TT buying rate is missing or zero for {month_name} (needed for calculation). Please go to 'Monthly Rates' and update it.")
+    return rate, result.get("rate_date"), result.get("source")
 
 
 def calculate_initial_value(lot: dict, sbi_overrides: dict) -> dict:
@@ -185,6 +190,10 @@ def calculate_closing_balance(
     0 if fully sold before Dec 31.
     """
     dec31 = date(calendar_year, 12, 31)
+    today = date.today()
+    if calendar_year == today.year and today < dec31:
+        dec31 = today
+        
     buy_date = _parse_date(lot["buy_date"])
 
     # If bought after Dec 31, no closing balance
@@ -936,3 +945,83 @@ def calculate_tax_year_summary(portfolio: dict) -> dict:
     compute_offset_summary(tax_years)
 
     return {"tax_years": tax_years}
+
+
+def calculate_current_balance(portfolio: dict) -> dict:
+    """
+    Calculate portfolio value as-of the last calendar day of the previous month.
+
+    Used to power the pie chart for in-progress calendar years, where Dec 31
+    hasn't occurred yet (so closing_balance from A3 rows would be 0).
+
+    Snapshot date = last calendar day of the previous month relative to today.
+    For each stock, fetches the price on (or just before) that date and
+    multiplies by remaining quantity × SBI TT rate.
+
+    Returns:
+        {
+            "snapshot_date": "YYYY-MM-DD",
+            "stock_balances": [
+                {"entity_name": str, "balance_inr": int}
+            ]
+        }
+    """
+    from datetime import date as date_cls
+    sbi_overrides = portfolio.get("sbi_rate_overrides", {})
+
+    today = date_cls.today()
+    # Price as of today (most recent trading day ≤ today).
+    # TTBR: _get_rate_value(today) resolves to the last working day of the
+    # previous month per ITR rules — exactly the right convention.
+    snapshot_date = today
+
+    stock_totals = {}  # entity_name -> total_balance_inr
+
+    for stock in portfolio.get("stocks", []):
+        ticker = stock["ticker"]
+        yahoo_ticker = stock.get("yahoo_ticker", ticker)
+        company = stock.get("company_info", {})
+        entity_name = company.get("display_name", ticker)
+
+        # Fetch price on snapshot date (or nearest prior trading day)
+        price = get_price_on_date(yahoo_ticker, snapshot_date.isoformat())
+        if price is None:
+            logger.warning(f"No price for {yahoo_ticker} on {snapshot_date}")
+            continue
+
+        # Get SBI TT rate for snapshot date
+        rate, _, _ = _get_rate_value(snapshot_date, sbi_overrides)
+        if rate is None:
+            logger.warning(f"No SBI rate for {snapshot_date}")
+            continue
+
+        # Sum remaining qty across all lots as-of snapshot date
+        total_balance_inr = 0.0
+        for lot in stock.get("lots", []):
+            if not lot.get("buy_date"):
+                continue
+            buy_date = _parse_date(lot["buy_date"])
+            if buy_date > snapshot_date:
+                continue  # Lot not yet acquired
+
+            qty = float(lot.get("quantity", 0))
+            for sell in lot.get("sells", []):
+                sell_date = _parse_date(sell["sell_date"])
+                if sell_date <= snapshot_date:
+                    qty -= float(sell["quantity"])
+
+            if qty <= 0:
+                continue
+
+            total_balance_inr += price * qty * rate
+
+        if total_balance_inr > 0:
+            stock_totals[entity_name] = stock_totals.get(entity_name, 0.0) + total_balance_inr
+
+    return {
+        "snapshot_date": snapshot_date.isoformat(),
+        "stock_balances": [
+            {"entity_name": k, "balance_inr": round(v)}
+            for k, v in stock_totals.items()
+        ],
+    }

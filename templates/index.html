@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ITR Schedule FA — Section A3 Helper</title>
-    <meta name="description" content="Tool to help fill Section A3 (Foreign Equity & Debt Interest) of Schedule FA in Indian Income Tax Return">
+    <title>FA Desk — Foreign Assets ITR Helper</title>
+    <meta name="description" content="FA Desk: Track foreign equity & debt investments and generate Schedule FA Section A3 for your Indian Income Tax Return">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -25,7 +25,7 @@
     <!-- User Selection Screen -->
     <div id="userSelectionScreen">
         <div class="user-card">
-            <h2>Welcome to ITR Schedule FA</h2>
+            <h2>Welcome to FA Desk</h2>
             <p class="subtitle">Select your profile to continue</p>
             
             <div class="user-list-container">
@@ -53,8 +53,8 @@
     <!-- Header -->
     <header id="appHeader" class="hidden">
         <div class="header-left">
-            <h1>📋 Schedule FA — Section A3</h1>
-            <span class="subtitle">Foreign Equity & Debt Interest</span>
+            <h1>🌐 FA Desk</h1>
+            <span class="subtitle">Foreign Assets ITR Helper</span>
         </div>
         <div class="header-right">
             <div class="user-display" style="display: flex; align-items: center; margin-right: 16px;">
@@ -73,12 +73,16 @@
                 <button id="importPrevBtn" class="btn btn-outline" title="Import previous year data">📥 Import Prev Year</button>
                 <button id="clearYearBtn" class="btn btn-outline" title="Clear all data for current year" style="border-color:var(--danger); color:var(--danger);">🗑️ Clear Year</button>
                 <button id="uploadEtradeBtn" class="btn btn-outline" title="Upload E-Trade files to import portfolio">📁 Upload ETRADE Docs</button>
+                <button id="uploadIbkrBtn" class="btn btn-outline" title="Upload IBKR CSV to import portfolio">📁 Upload IBKR Docs</button>
                 <button id="loadBtn" class="btn btn-outline" title="Load saved data from server">📂 Load</button>
                 <button id="openFileBtn" class="btn btn-outline" title="Open portfolio JSON file">📂 Open...</button>
                 <button id="undoBtn" class="btn btn-outline" title="Undo last action (Ctrl+Z)" disabled>↩ Undo</button>
                 <button id="redoBtn" class="btn btn-outline" title="Redo (Ctrl+Shift+Z)" disabled>↪ Redo</button>
+                <button id="collapseAllBtn" class="btn btn-sm btn-outline" title="Collapse all stock cards">▶ Collapse All</button>
+                <button id="expandAllBtn" class="btn btn-sm btn-outline" title="Expand all stock cards">▼ Expand All</button>
                 <button id="saveBtn" class="btn btn-primary" title="Save current data to server"><span id="unsavedDot" class="unsaved-dot hidden"></span>💾 Save</button>
                 <button id="saveAsBtn" class="btn btn-primary" title="Save portfolio to your computer">💾 Save As</button>
+                <button id="themeToggleBtn" class="btn btn-sm btn-outline" title="Toggle dark/light theme">🌙</button>
                 <button id="helpBtn" class="btn btn-outline btn-help" title="Show feature tutorial">❓ Help</button>
                 <input type="file" id="openFileInput" accept=".json" style="display: none;">
             </div>
@@ -87,12 +91,13 @@
 
     <!-- Tab Navigation -->
     <nav id="tabNav" class="hidden tab-nav">
-        <button id="tabA3" class="tab-btn active" onclick="switchTab('a3')">📋 Schedule FA A3</button>
+        <button id="tabA3" class="tab-btn active" onclick="switchTab('a3')">📋 FA Report (A3)</button>
         <button id="tabSellHelper" class="tab-btn" onclick="switchTab('sellHelper')">🧮 Sell Simulator</button>
         <button id="tabTaxStatement" class="tab-btn" onclick="switchTab('taxStatement')">📊 Tax Statement</button>
     </nav>
 
     <main id="appMain" class="hidden">
+
         <!-- SBI Monthly Rates Manager (always available) -->
         <section id="monthlyRatesSection" class="card hidden">
             <div class="collapsible-header" onclick="toggleSection('monthlyRatesContent')">
@@ -137,22 +142,34 @@
             </div>
         </section>
 
+        <!-- Portfolio Dashboard -->
+        <div id="portfolioDashboard" class="portfolio-dashboard hidden">
+            <div class="dash-stat"><span class="dash-icon">📦</span><span class="dash-value" id="dashStockCount">0</span><span class="dash-label">Stocks</span></div>
+            <div class="dash-stat"><span class="dash-icon">📋</span><span class="dash-value" id="dashLotCount">0</span><span class="dash-label">Lots</span></div>
+            <div class="dash-stat"><span class="dash-icon">💰</span><span class="dash-value" id="dashTotalAssets">—</span><span class="dash-label">Total Assets (₹)</span></div>
+            <div class="dash-stat"><span class="dash-icon">💵</span><span class="dash-value" id="dashTotalDividends">—</span><span class="dash-label">Total Dividends (₹)</span></div>
+        </div>
+
+        <!-- Stock Filter Bar -->
+        <div id="stockFilterBar" class="stock-filter-bar hidden">
+            <input type="text" id="stockFilterInput" placeholder="🔍 Filter stocks by ticker or name…">
+            <span id="stockFilterCount" class="stock-filter-count"></span>
+        </div>
+
         <!-- Stock Cards Container -->
         <div id="stockCards"></div>
 
-        <!-- Calculate Button -->
-        <section id="calcSection" class="card hidden">
-            <button id="calculateBtn" class="btn btn-accent btn-large">⚡ Calculate A3 Values</button>
-            <p class="hint">This will fetch stock prices, SBI rates, and calculate all 12 columns</p>
-        </section>
-
         <!-- Results Section -->
         <section id="resultsSection" class="card hidden">
-            <div class="results-header">
-                <h2>📊 Schedule FA — Section A3 Preview</h2>
-                <button id="exportCsvBtn" class="btn btn-primary">📥 Export CSV</button>
+            <div class="collapsible-header" onclick="toggleSection('resultsContent')">
+                <h2>📊 FA Report Preview — Section A3</h2>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button id="exportCsvBtn" class="btn btn-primary" onclick="event.stopPropagation();">📥 Export CSV</button>
+                    <span class="toggle-icon">▼</span>
+                </div>
             </div>
-            <div class="table-wrapper">
+            <div id="resultsContent" class="collapsible-content">
+                <div class="table-wrapper">
                 <table id="a3Table">
                     <thead>
                         <tr>
@@ -192,14 +209,7 @@
                     <tbody id="stockSummaryTableBody"></tbody>
                 </table>
             </div>
-
-            <!-- Pie Chart: End-of-Year Assets by Stock -->
-            <div id="assetPieChartSection" style="margin-top: 30px;">
-                <h3 style="margin-bottom: 12px;">🧩 End-of-Year Assets by Stock (INR)</h3>
-                <div class="pie-chart-container">
-                    <canvas id="assetPieChart" width="400" height="400"></canvas>
-                    <div id="assetPieChartLegend" class="pie-chart-legend"></div>
-                </div>
+            </div>
             </div>
         </section>
 
@@ -218,6 +228,20 @@
                 </p>
                 <div id="taxYearBlocks">
                     <!-- Populated by JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Pie Chart: End-of-Year Assets by Stock -->
+        <section id="assetPieChartSection" class="card hidden">
+            <div class="collapsible-header" onclick="toggleSection('assetPieChartContent')">
+                <h2 id="assetPieChartTitle">🧩 End-of-Year Assets by Stock (INR)</h2>
+                <span class="toggle-icon">▼</span>
+            </div>
+            <div id="assetPieChartContent" class="collapsible-content">
+                <div class="pie-chart-container">
+                    <canvas id="assetPieChart" width="400" height="400"></canvas>
+                    <div id="assetPieChartLegend" class="pie-chart-legend"></div>
                 </div>
             </div>
         </section>
@@ -376,8 +400,38 @@
         </div>
         <!-- ===== END SELL HELPER ===== -->
 
-        <!-- Floating Calculate A3 Button -->
-        <button id="calcFab" class="calc-fab hidden" title="Calculate A3 Values">⚡ Calculate A3</button>
+        <!-- Quick Jump Nav (fixed, above FAB) -->
+        <nav id="quickJumpNav" class="quick-jump-nav hidden">
+            <div class="qj-title">Jump to</div>
+            <button class="qj-btn" data-target="addStockSection">➕ Add Stock</button>
+            <button class="qj-btn" data-target="stockCards">📦 Stocks</button>
+            <button class="qj-btn" data-target="resultsSection">📊 Report</button>
+            <button class="qj-btn" data-target="stockSummarySection">💰 Dividends</button>
+            <button class="qj-btn" data-target="assetPieChartSection">🧩 Assets</button>
+            <button class="qj-btn" data-target="taxYearSection">📈 Tax Year</button>
+            <button class="qj-btn" data-target="sbiRatesSection">💱 SBI Rates</button>
+        </nav>
+
+        <!-- Floating Generate FA Report Button -->
+        <button id="calcFab" class="calc-fab hidden" title="Generate FA Report">⚡ Generate FA Report</button>
+
+        <!-- Keyboard Shortcuts Modal -->
+        <div id="shortcutsModal" class="modal-backdrop hidden" onclick="if(event.target===this) this.classList.add('hidden')">
+            <div class="modal-box" style="max-width: 420px;">
+                <div class="modal-header">
+                    <h2>⌨️ Keyboard Shortcuts</h2>
+                    <button class="btn btn-sm btn-outline" onclick="document.getElementById('shortcutsModal').classList.add('hidden')">✕</button>
+                </div>
+                <table style="width:100%; margin-top: 12px;">
+                    <tbody>
+                        <tr><td style="padding:8px;"><kbd>Ctrl+S</kbd></td><td>Save portfolio</td></tr>
+                        <tr><td style="padding:8px;"><kbd>Ctrl+Z</kbd></td><td>Undo</td></tr>
+                        <tr><td style="padding:8px;"><kbd>Ctrl+Shift+Z</kbd></td><td>Redo</td></tr>
+                        <tr><td style="padding:8px;"><kbd>?</kbd></td><td>Show this cheatsheet</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
 
         <footer style="text-align: center; margin-top: 40px; padding: 20px; color: var(--text-muted); border-top: 1px solid var(--border); font-size: 0.9em;">
 
@@ -388,9 +442,10 @@
 
     <!-- Stock Card Template -->
     <template id="stockCardTemplate">
-        <div class="stock-card card" data-stock-id="">
+        <div class="stock-card card" data-stock-id="" draggable="true">
             <div class="stock-card-header">
                 <div class="stock-info-summary">
+                    <span class="drag-handle" title="Drag to reorder">☰</span>
                     <span class="stock-ticker"></span>
                     <span class="stock-name"></span>
                     <span class="stock-peak-badge hidden" title="Yearly max closing price (used for Peak Value calculation)">
@@ -406,7 +461,10 @@
             <div class="stock-card-body">
                 <!-- Company Info -->
                 <div class="company-info-section">
-                    <h3>Company Information</h3>
+                    <div class="section-header">
+                        <h3>Company Information</h3>
+                        <button class="btn btn-sm btn-outline fetch-company-details-btn" title="Fetch company info from Yahoo Finance and override current values">🔄 Fetch Details</button>
+                    </div>
                     <div class="form-grid">
                         <div class="form-field">
                             <label>Country Code</label>
@@ -445,7 +503,11 @@
                 <div class="lots-section">
                     <div class="section-header">
                         <h3>Acquisition Lots</h3>
-                        <button class="btn btn-sm btn-primary add-lot-btn">+ Add Lot</button>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn btn-sm btn-outline import-lots-csv-btn" title="Import lots from CSV file">📂 Import CSV</button>
+                            <input type="file" class="import-lots-csv-input" accept=".csv" style="display:none;">
+                            <button class="btn btn-sm btn-primary add-lot-btn">+ Add Lot</button>
+                        </div>
                     </div>
                     <table class="lots-table">
                         <thead>
@@ -549,6 +611,36 @@
         </div>
     </div>
     <!-- ===== END ETRADE Upload Modal ===== -->
+
+    <!-- ===== IBKR Upload Modal ===== -->
+    <div id="ibkrUploadModal" class="modal-backdrop hidden" onclick="if(event.target===this)closeIbkrModal()">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2 style="margin:0;">📁 Upload IBKR Docs</h2>
+                <button class="btn btn-sm btn-outline" onclick="closeIbkrModal()">✕ Close</button>
+            </div>
+            <p class="hint" style="margin:12px 0 20px;">Import your IBKR CSV export to build the portfolio automatically.</p>
+
+            <div class="modal-file-row">
+                <div class="modal-file-label">
+                    <span class="modal-file-icon">📈</span>
+                    <div>
+                        <strong>Transaction History File</strong>
+                        <p class="hint" style="margin:2px 0 0;">IBKR CSV export containing the 'Transaction History' section. Populates stock lots with buy and sell details.</p>
+                    </div>
+                </div>
+                <label class="btn btn-outline btn-sm modal-file-pick" for="ibkrFileInput">Choose File</label>
+                <input type="file" id="ibkrFileInput" style="display:none;" accept=".csv">
+                <span id="ibkrFileName" class="modal-file-chosen">No file chosen</span>
+            </div>
+
+            <div style="margin-top:24px;display:flex;gap:10px;justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="closeIbkrModal()">Cancel</button>
+                <button id="ibkrImportBtn" class="btn btn-accent">⚡ Import Portfolio</button>
+            </div>
+        </div>
+    </div>
+    <!-- ===== END IBKR Upload Modal ===== -->
 
     <!-- ===== Tutorial Overlay ===== -->
     <div id="tutorialOverlay" class="tutorial-overlay hidden">

@@ -93,6 +93,9 @@ function clearCalculatedSections() {
     }
     const pieLegend = document.getElementById("assetPieChartLegend");
     if (pieLegend) pieLegend.innerHTML = "";
+    
+    const pieSection = document.getElementById("assetPieChartSection");
+    if (pieSection) pieSection.classList.add("hidden");
 }
 
 // ===== Initialization =====
@@ -103,6 +106,12 @@ document.addEventListener("DOMContentLoaded", () => {
     initUserSelection();
     initSellHelper();
     initTutorial();
+    initQuickJump();
+    restoreTheme();
+    addYearChangeGuard();
+
+    // Auto-save draft every 30 seconds
+    setInterval(autoSaveDraft, 30000);
 });
 
 function initYearSelectors() {
@@ -146,7 +155,6 @@ function bindEvents() {
     document.getElementById("tickerInput").addEventListener("keypress", (e) => {
         if (e.key === "Enter") lookupStock();
     });
-    document.getElementById("calculateBtn").addEventListener("click", calculateAll);
     document.getElementById("calcFab").addEventListener("click", calculateAll);
     document.getElementById("exportCsvBtn").addEventListener("click", exportCSV);
     document.getElementById("saveBtn").addEventListener("click", savePortfolio);
@@ -167,6 +175,7 @@ function bindEvents() {
     document.getElementById("generateFYBtn").addEventListener("click", fetchConsolidatedTaxSummary);
     
     document.getElementById("uploadEtradeBtn").addEventListener("click", openEtradeModal);
+    document.getElementById("uploadIbkrBtn").addEventListener("click", openIbkrModal);
     document.getElementById("switchUserBtn").addEventListener("click", () => {
         document.getElementById("appHeader").classList.add("hidden");
         document.getElementById("appMain").classList.add("hidden");
@@ -175,7 +184,7 @@ function bindEvents() {
         fetchUsers();
     });
 
-    // Keyboard shortcuts for undo/redo
+    // Keyboard shortcuts
     document.addEventListener("keydown", (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
             e.preventDefault();
@@ -185,24 +194,51 @@ function bindEvents() {
             e.preventDefault();
             redo();
         }
+        if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+            e.preventDefault();
+            savePortfolio();
+        }
+        if (e.key === "?" && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+            document.getElementById("shortcutsModal").classList.toggle("hidden");
+        }
     });
 
-    // ===== Floating Calculate A3 Button (IntersectionObserver) =====
-    const calcSection = document.getElementById("calcSection");
-    const calcFab = document.getElementById("calcFab");
-    if (calcSection && calcFab && typeof IntersectionObserver !== "undefined") {
-        const calcObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                // Show FAB only when calcSection is NOT visible AND has stocks
-                if (!entry.isIntersecting && !calcSection.classList.contains("hidden")) {
-                    calcFab.classList.remove("hidden");
-                } else {
-                    calcFab.classList.add("hidden");
-                }
-            });
-        }, { threshold: 0.1 });
-        calcObserver.observe(calcSection);
-    }
+    // Collapse All / Expand All
+    document.getElementById("collapseAllBtn").addEventListener("click", () => {
+        document.querySelectorAll(".stock-card-body").forEach(body => {
+            body.classList.add("collapsed");
+            const btn = body.closest(".stock-card").querySelector(".toggle-details-btn");
+            if (btn) btn.textContent = "▶ Details";
+        });
+        document.querySelectorAll(".collapsible-content").forEach(el => {
+            el.classList.add("collapsed");
+            const icon = el.previousElementSibling.querySelector(".toggle-icon");
+            if (icon) icon.style.transform = "rotate(-90deg)";
+        });
+    });
+    document.getElementById("expandAllBtn").addEventListener("click", () => {
+        document.querySelectorAll(".stock-card-body").forEach(body => {
+            body.classList.remove("collapsed");
+            const btn = body.closest(".stock-card").querySelector(".toggle-details-btn");
+            if (btn) btn.textContent = "▼ Details";
+        });
+        document.querySelectorAll(".collapsible-content").forEach(el => {
+            el.classList.remove("collapsed");
+            const icon = el.previousElementSibling.querySelector(".toggle-icon");
+            if (icon) icon.style.transform = "";
+        });
+    });
+
+    // Theme toggle
+    document.getElementById("themeToggleBtn").addEventListener("click", toggleTheme);
+
+    // Stock filter
+    document.getElementById("stockFilterInput").addEventListener("input", filterStockCards);
+
+    // Warn before leaving with unsaved changes
+    window.addEventListener("beforeunload", (e) => {
+        if (state.isDirty) { e.preventDefault(); e.returnValue = ""; }
+    });
 }
 
 // ===== User Selection & Management =====
@@ -368,13 +404,45 @@ function showToast(message, type = "info", duration = 4000) {
 }
 
 // ===== Loading Overlay =====
+let _loadingMsgInterval = null;
+
 function showLoading(text = "Loading...") {
-    document.getElementById("loadingText").textContent = text;
-    document.getElementById("loadingOverlay").classList.remove("hidden");
+    const overlay = document.getElementById("loadingOverlay");
+    const textEl = document.getElementById("loadingText");
+    overlay.classList.remove("hidden");
+    textEl.innerHTML = text.replace(/\n/g, "<br>");
+
+    // Add progress bar if not present
+    if (!overlay.querySelector(".progress-bar-container")) {
+        const bar = document.createElement("div");
+        bar.className = "progress-bar-container";
+        bar.innerHTML = '<div class="progress-bar-fill"></div>';
+        overlay.querySelector(".loader").appendChild(bar);
+    }
+
+    // Cycle messages for FA Report generation
+    if (_loadingMsgInterval) clearInterval(_loadingMsgInterval);
+    if (text.includes("Generating FA Report")) {
+        const steps = [
+            "Fetching stock prices\u2026",
+            "Looking up SBI TT rates\u2026",
+            "Computing peak values\u2026",
+            "Calculating dividends\u2026",
+            "Building A3 rows\u2026",
+        ];
+        let idx = 0;
+        _loadingMsgInterval = setInterval(() => {
+            idx = (idx + 1) % steps.length;
+            textEl.innerHTML = `Generating FA Report\u2026<br><span style="font-size:0.85rem;color:var(--text-muted)">${steps[idx]}</span>`;
+        }, 2500);
+    }
 }
 
 function hideLoading() {
     document.getElementById("loadingOverlay").classList.add("hidden");
+    if (_loadingMsgInterval) { clearInterval(_loadingMsgInterval); _loadingMsgInterval = null; }
+    const bar = document.querySelector("#loadingOverlay .progress-bar-container");
+    if (bar) bar.remove();
 }
 
 // ===== Collapsible Sections =====
@@ -520,6 +588,15 @@ function renderStockCard(stock) {
 
     // Fetch dividends button
     card.querySelector(".fetch-dividends-btn").addEventListener("click", () => fetchDividendsForStock(card, stock));
+
+    // Fetch company details button
+    card.querySelector(".fetch-company-details-btn").addEventListener("click", () => fetchCompanyDetailsForStock(card, stock));
+
+    // Drag and drop reordering
+    initDragAndDrop(card, stock);
+
+    // CSV lot import
+    initCsvLotImport(card, stock);
 
     // Render existing lots, sells, and dividends
     stock.lots.forEach(lot => renderLotRow(card, stock, lot));
@@ -799,7 +876,7 @@ async function calculateAll() {
         return showToast("Add at least one lot with a date and quantity", "warning");
     }
 
-    showLoading("Calculating A3 values...\nThis may take a moment (fetching prices & rates)");
+    showLoading("Generating FA Report...\nThis may take a moment (fetching prices & rates)");
 
     try {
         const result = await apiPost("/api/calculate", state.portfolio);
@@ -890,7 +967,7 @@ async function calculateAll() {
         });
 
         // Render Pie Chart
-        renderAssetPieChart(result.rows);
+        await renderAssetPieChart(result.rows);
 
         document.getElementById("resultsSection").classList.remove("hidden");
         document.getElementById("sbiRatesSection").classList.remove("hidden");
@@ -908,7 +985,14 @@ async function calculateAll() {
 
         // Scroll to results
         document.getElementById("resultsSection").scrollIntoView({ behavior: "smooth" });
-        showToast(`Calculated ${result.rows.length} row(s) successfully`, "success");
+        showToast(`FA Report generated — ${result.rows.length} row(s)`, "success");
+
+        // Update dashboard with calculated values
+        updateDashboard();
+
+        // Save for YoY comparison + render if prev year data exists
+        saveCalcResultsForYoY();
+        renderYoYComparison();
     } catch (e) {
         hideLoading();
         showToast(`Error: ${e.message}`, "error");
@@ -929,6 +1013,17 @@ function closeEtradeModal() {
     document.getElementById("sellDetailsFileName").textContent = "No file chosen";
 }
 
+// ===== IBKR Upload Modal =====
+function openIbkrModal() {
+    document.getElementById("ibkrUploadModal").classList.remove("hidden");
+}
+
+function closeIbkrModal() {
+    document.getElementById("ibkrUploadModal").classList.add("hidden");
+    document.getElementById("ibkrFileInput").value = "";
+    document.getElementById("ibkrFileName").textContent = "No file chosen";
+}
+
 // Wire file-chosen labels once DOM is ready (called from initSellHelper since DOMContentLoaded already ran)
 document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("etradeFileInput").addEventListener("change", e => {
@@ -940,6 +1035,13 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("sellDetailsFileName").textContent = f ? f.name : "No file chosen";
     });
     document.getElementById("etradeImportBtn").addEventListener("click", importEtradeDocs);
+
+    // IBKR
+    document.getElementById("ibkrFileInput").addEventListener("change", e => {
+        const f = e.target.files[0];
+        document.getElementById("ibkrFileName").textContent = f ? f.name : "No file chosen";
+    });
+    document.getElementById("ibkrImportBtn").addEventListener("click", importIbkrDocs);
 });
 
 async function importEtradeDocs() {
@@ -1023,6 +1125,52 @@ async function importEtradeDocs() {
     }
 
     closeEtradeModal();
+}
+
+async function importIbkrDocs() {
+    const ibkrFile = document.getElementById("ibkrFileInput").files[0];
+
+    if (!ibkrFile) {
+        showToast("Please choose an IBKR file to import", "warning");
+        return;
+    }
+
+    showLoading("Parsing IBKR Transaction History...");
+    try {
+        const fd = new FormData();
+        fd.append("file", ibkrFile);
+        fd.append("portfolio", JSON.stringify(state.portfolio));
+        const resp = await fetch("/api/upload-ibkr", { method: "POST", body: fd });
+        const result = await resp.json();
+        
+        if (result.success) {
+            state.portfolio = result.portfolio;
+            const totalSkipped = result.skipped_count || 0;
+            
+            document.getElementById("stockCards").innerHTML = "";
+            state.portfolio.stocks.forEach(stock => renderStockCard(stock));
+            updateCalcButtonVisibility();
+            clearCalculatedSections();
+            markDirty();
+
+            const cy = state.portfolio.calendar_year || "";
+            showToast(`IBKR Portfolio imported successfully`, "success");
+
+            if (totalSkipped > 0) {
+                showToast(
+                    `⚠ ${totalSkipped} transaction${totalSkipped > 1 ? "s" : ""} skipped — dated after CY${cy}`,
+                    "warning"
+                );
+            }
+            closeIbkrModal();
+        } else {
+            showToast("IBKR file error: " + result.error, "error");
+        }
+    } catch (err) {
+        showToast("IBKR upload failed: " + err.message, "error");
+    } finally {
+        hideLoading();
+    }
 }
 
 
@@ -1238,6 +1386,7 @@ async function savePortfolio() {
 
         if (result.success) {
             markClean();
+            clearDraft(state.username, state.portfolio.calendar_year);
             showToast(`Saved for CY${state.portfolio.calendar_year}`, "success");
         } else {
             showToast(`Save failed: ${result.error}`, "error");
@@ -1270,6 +1419,8 @@ async function loadPortfolio() {
         updateCalcButtonVisibility();
 
         showToast(`Loaded portfolio for CY${year}`, "success");
+        if (state.portfolio.stocks.length > 0) await fetchRuntimeDataForAllStocks();
+        hideLoading();
     } catch (e) {
         hideLoading();
         showToast(`Load error: ${e.message}`, "error");
@@ -1280,7 +1431,15 @@ function savePortfolioAs() {
     // Sync all cards
     document.querySelectorAll(".stock-card").forEach(card => syncStockFromCard(card));
 
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.portfolio, null, 2));
+    // Deep clone and strip runtime-only fields before downloading
+    const portfolioToSave = JSON.parse(JSON.stringify(state.portfolio));
+    portfolioToSave.stocks.forEach(stock => {
+        delete stock.dividends;
+        delete stock.yearly_max_price;
+        delete stock.yearly_max_price_date;
+    });
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(portfolioToSave, null, 2));
     const dlAnchorElem = document.createElement('a');
     dlAnchorElem.setAttribute("href", dataStr);
     dlAnchorElem.setAttribute("download", `portfolio_CY${state.portfolio.calendar_year}_${state.username}.json`);
@@ -1318,6 +1477,10 @@ document.addEventListener("DOMContentLoaded", () => {
                     updateCalcButtonVisibility();
                     
                     showToast("Portfolio loaded from file", "success");
+                    // Fetch runtime data (dividends + peak prices) in background
+                    if (state.portfolio.stocks.length > 0) {
+                        fetchRuntimeDataForAllStocks().then(hideLoading).catch(() => hideLoading());
+                    }
                 } catch (err) {
                     showToast(`Failed to read file: ${err.message}`, "error");
                 }
@@ -1329,7 +1492,49 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
-// ===== Fetch SBI Rates =====
+// ===== Runtime Data Fetcher =====
+/**
+ * After loading a portfolio (from disk, import, or file), fetch dividends and
+ * peak prices for all stocks. These are runtime-only values — never stored in
+ * the portfolio JSON — and must always be fetched fresh.
+ */
+async function fetchRuntimeDataForAllStocks() {
+    const year = state.portfolio.calendar_year;
+    const total = state.portfolio.stocks.length;
+    let idx = 0;
+    for (const stock of state.portfolio.stocks) {
+        idx++;
+        const ticker = stock.yahoo_ticker || stock.ticker;
+        showLoading(`Fetching live data (${idx}/${total}): ${stock.ticker}…`);
+        const card = document.querySelector(`.stock-card[data-stock-id="${stock.id}"]`);
+
+        // Fetch dividends
+        if (!stock.skip_dividends) {
+            try {
+                const divData = await apiGet(`/api/dividends?ticker=${encodeURIComponent(ticker)}&year=${year}`);
+                stock.dividends = (divData.dividends || []).map(d => ({
+                    id: generateId(), ex_date: d.ex_date, amount: d.amount,
+                }));
+                if (card) {
+                    const tbody = card.querySelector(".dividends-tbody");
+                    tbody.innerHTML = "";
+                    stock.dividends.forEach(div => renderDividendRow(card, stock, div));
+                }
+            } catch (e) { console.warn(`Dividend fetch failed for ${ticker}`, e); }
+        }
+
+        // Fetch peak price (for badge display)
+        try {
+            const peakInfo = await apiGet(`/api/yearly-max-price?ticker=${encodeURIComponent(ticker)}&year=${year}`);
+            if (peakInfo.max_price != null) {
+                stock.yearly_max_price = peakInfo.max_price;
+                stock.yearly_max_price_date = peakInfo.max_price_date;
+                if (card) showPeakPriceBadge(card, peakInfo.max_price, peakInfo.max_price_date);
+            }
+        } catch (e) { console.warn(`Peak price fetch failed for ${ticker}`, e); }
+    }
+}
+
 async function fetchSbiRates() {
     showLoading("Downloading SBI USD rates from GitHub...");
     try {
@@ -1379,9 +1584,13 @@ async function importPreviousYear() {
         updateCalcButtonVisibility();
 
         showToast(`Imported ${state.portfolio.stocks.length} stock(s) from CY${sourceYear}`, "success");
+        if (state.portfolio.stocks.length > 0) {
+            await fetchRuntimeDataForAllStocks();
+        }
     } catch (e) {
-        hideLoading();
         showToast(`Import error: ${e.message}`, "error");
+    } finally {
+        hideLoading();
     }
 }
 
@@ -1437,12 +1646,20 @@ function generateId() {
 }
 
 function updateCalcButtonVisibility() {
-    const section = document.getElementById("calcSection");
-    if (state.portfolio.stocks.length > 0) {
-        section.classList.remove("hidden");
-    } else {
-        section.classList.add("hidden");
-    }
+    const hasStocks = state.portfolio.stocks.length > 0;
+
+    // FAB + Quick Jump Nav: visible when stocks exist
+    const fab = document.getElementById("calcFab");
+    const qjNav = document.getElementById("quickJumpNav");
+    if (fab) fab.classList.toggle("hidden", !hasStocks);
+    if (qjNav) qjNav.classList.toggle("hidden", !hasStocks);
+
+    // Filter bar: visible when ≥ 3 stocks
+    const filterBar = document.getElementById("stockFilterBar");
+    if (filterBar) filterBar.classList.toggle("hidden", state.portfolio.stocks.length < 3);
+
+    // Dashboard
+    updateDashboard();
 }
 
 // ===== Monthly Rates Manager =====
@@ -1554,8 +1771,10 @@ async function autoLoadForYear(year) {
             state.portfolio.stocks.forEach(stock => renderStockCard(stock));
             updateCalcButtonVisibility();
             clearCalculatedSections();
-            hideLoading();
             showToast(`Loaded saved portfolio for CY${year}`, "success");
+            clearDraft(state.username, year);
+            if (state.portfolio.stocks.length > 0) await fetchRuntimeDataForAllStocks();
+            hideLoading();
             return;
         }
 
@@ -1573,9 +1792,27 @@ async function autoLoadForYear(year) {
             state.portfolio.stocks.forEach(stock => renderStockCard(stock));
             updateCalcButtonVisibility();
             clearCalculatedSections();
-            hideLoading();
             showToast(`Imported ${state.portfolio.stocks.length} stock(s) from CY${sourceYear}`, "info");
+            if (state.portfolio.stocks.length > 0) await fetchRuntimeDataForAllStocks();
+            hideLoading();
             return;
+        }
+
+        // Check for localStorage draft
+        const draft = checkForDraft(state.username, year);
+        if (draft && draft.portfolio && draft.portfolio.stocks && draft.portfolio.stocks.length > 0) {
+            hideLoading();
+            const ago = Math.round((Date.now() - draft.timestamp) / 60000);
+            if (confirm(`Found unsaved draft from ${ago} min ago with ${draft.portfolio.stocks.length} stock(s). Restore it?`)) {
+                state.portfolio = draft.portfolio;
+                document.getElementById("stockCards").innerHTML = "";
+                state.portfolio.stocks.forEach(stock => renderStockCard(stock));
+                updateCalcButtonVisibility();
+                clearCalculatedSections();
+                showToast("Draft restored", "success");
+                if (state.portfolio.stocks.length > 0) await fetchRuntimeDataForAllStocks();
+                return;
+            }
         }
 
         // Clear and start fresh
@@ -1909,9 +2146,9 @@ function renderTaxYearSummary(taxYears) {
 // ===== Tab Switching =====
 function switchTab(tab) {
     const a3Els = [
-        "addStockSection", "stockCards", "calcSection",
+        "addStockSection", "stockCards", "portfolioDashboard", "stockFilterBar",
         "resultsSection", "sbiRatesSection", "taxYearSection",
-        "monthlyRatesSection",
+        "monthlyRatesSection", "assetPieChartSection",
     ];
     const isA3 = tab === "a3";
     const isSellHelper = tab === "sellHelper";
@@ -1920,7 +2157,6 @@ function switchTab(tab) {
     a3Els.forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
-        // monthlyRatesSection has its own hidden logic
         if (id === "monthlyRatesSection") {
             if (!isA3) el.classList.add("hidden");
             return;
@@ -1935,7 +2171,66 @@ function switchTab(tab) {
     document.getElementById("tabSellHelper").classList.toggle("active", isSellHelper);
     document.getElementById("tabTaxStatement").classList.toggle("active", isTaxStatement);
 
-    if (isSellHelper) shImportLots(); // auto-refresh lots when switching to helper
+    if (isSellHelper) shImportLots();
+
+    // Show/hide FAB + quick-jump nav based on tab and stock count
+    const qjNav = document.getElementById("quickJumpNav");
+    const calcFab = document.getElementById("calcFab");
+    const hasStocks = state.portfolio.stocks.length > 0;
+    if (calcFab) calcFab.classList.toggle("hidden", !isA3 || !hasStocks);
+    if (qjNav) qjNav.classList.toggle("hidden", !isA3 || !hasStocks);
+}
+
+// ===== Quick Jump Sidebar =====
+function initQuickJump() {
+    const nav = document.getElementById("quickJumpNav");
+    if (!nav) return;
+
+    const btns = nav.querySelectorAll(".qj-btn");
+
+    // Click → smooth scroll
+    btns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            const targetId = btn.dataset.target;
+            const el = document.getElementById(targetId);
+            if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+        });
+    });
+
+    // IntersectionObserver for active highlighting
+    const sectionIds = Array.from(btns).map(b => b.dataset.target);
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            const btn = nav.querySelector(`.qj-btn[data-target="${entry.target.id}"]`);
+            if (!btn) return;
+
+            // Show/hide button based on whether section is in the DOM and visible
+            const isHidden = entry.target.classList.contains("hidden") ||
+                             entry.target.offsetParent === null;
+            btn.classList.toggle("qj-hidden", isHidden);
+
+            if (entry.isIntersecting) {
+                btns.forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+            }
+        });
+    }, { rootMargin: "-10% 0px -70% 0px", threshold: 0 });
+
+    sectionIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) observer.observe(el);
+    });
+
+    // Periodically update button visibility (sections are added/removed dynamically)
+    setInterval(() => {
+        btns.forEach(btn => {
+            const el = document.getElementById(btn.dataset.target);
+            const isHidden = !el || el.classList.contains("hidden") || el.offsetParent === null;
+            btn.classList.toggle("qj-hidden", isHidden);
+        });
+    }, 1000);
 }
 
 // ===== Sell Simulator =====
@@ -2104,8 +2399,8 @@ function shAddRow(lotIdx = 0) {
                 priceInput.value = res.price;
                 const sell = simState.sells.find(s => s.rowId === rowId);
                 if (sell) sell.sell_price = String(res.price);
-                const mktLabel = res.market_state !== "REGULAR" ? ` (${res.market_state})` : "";
-                showToast(`Live price: $${res.price}${mktLabel}`, "success");
+                const mktLabel = (res.market_state !== "REGULAR" && res.market_state !== "UNKNOWN") ? ` (${res.market_state})` : "";
+                showToast(`Live price for ${lot.ticker}: $${res.price}${mktLabel}`, "success");
                 updateBadge();
             } else {
                 showToast("Could not fetch live price", "warning");
@@ -2328,6 +2623,42 @@ async function fetchDividendsForStock(card, stock) {
     }
 }
 
+async function fetchCompanyDetailsForStock(card, stock) {
+    const ticker = stock.ticker;
+    const btn = card.querySelector(".fetch-company-details-btn");
+    btn.disabled = true;
+    btn.textContent = "⏳ Fetching…";
+    try {
+        const info = await apiPost("/api/lookup-stock", { ticker });
+        if (!info.success) {
+            showToast(`Could not fetch details for ${ticker}: ${info.error || "Unknown error"}`, "error");
+            return;
+        }
+        pushUndoSnapshot();
+        // Override company info fields
+        stock.company_info.country_code = info.country_code || stock.company_info.country_code;
+        stock.company_info.name = info.name || stock.company_info.name;
+        stock.company_info.display_name = info.display_name || stock.company_info.display_name;
+        stock.company_info.address = info.address || stock.company_info.address;
+        stock.company_info.zip = info.zip || stock.company_info.zip;
+        stock.company_info.nature = info.nature || stock.company_info.nature;
+        if (info.yahoo_ticker) stock.yahoo_ticker = info.yahoo_ticker;
+        // Update card fields
+        card.querySelector(".company-country").value = stock.company_info.country_code;
+        card.querySelector(".company-name").value = stock.company_info.display_name;
+        card.querySelector(".company-address").value = stock.company_info.address;
+        card.querySelector(".company-zip").value = stock.company_info.zip;
+        card.querySelector(".company-nature").value = stock.company_info.nature;
+        card.querySelector(".stock-name").textContent = stock.company_info.name;
+        showToast(`Updated company details for ${ticker}`, "success");
+    } catch (e) {
+        showToast(`Failed to fetch details for ${ticker}: ${e.message}`, "error");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "🔄 Fetch Details";
+    }
+}
+
 async function fetchAllDividends() {
     if (state.portfolio.stocks.length === 0) return showToast("No stocks to fetch dividends for", "warning");
     pushUndoSnapshot();
@@ -2361,7 +2692,7 @@ function initFYYearSelector() {
     for (let y = currentYear; y >= 2000; y--) {
         const opt = document.createElement("option");
         opt.value = y;
-        opt.textContent = `FY ${y}-${String(y + 1).slice(-2)} (Apr ${y} – Mar ${y + 1})`;
+        opt.textContent = `TY ${y}-${String(y + 1).slice(-2)} (Apr ${y} – Mar ${y + 1})`;
         if (y === state.portfolio.calendar_year) opt.selected = true;
         select.appendChild(opt);
     }
@@ -2371,7 +2702,7 @@ function initFYYearSelector() {
 async function fetchConsolidatedTaxSummary() {
     const fyStart = parseInt(document.getElementById("fyYearSelect").value);
     if (!fyStart || !state.username) return showToast("Select a tax year", "warning");
-    showLoading(`Generating consolidated statement for FY ${fyStart}-${String(fyStart + 1).slice(-2)}…`);
+    showLoading(`Generating consolidated statement for TY ${fyStart}-${String(fyStart + 1).slice(-2)}…`);
     try {
         const result = await apiPost("/api/consolidated-tax-summary", {
             fy_start_year: fyStart, username: state.username,
@@ -2603,10 +2934,14 @@ function shRenderLotsReference() {
 }
 
 // ===== Pie Chart =====
-function renderAssetPieChart(rows) {
+async function renderAssetPieChart(rows) {
     const canvas = document.getElementById("assetPieChart");
     const legendContainer = document.getElementById("assetPieChartLegend");
+    const chartTitleEl = document.getElementById("assetPieChartTitle");
     if (!canvas || !legendContainer) return;
+
+    const section = document.getElementById("assetPieChartSection");
+    if (section) section.classList.remove("hidden");
 
     const ctx = canvas.getContext("2d");
     const width = canvas.width;
@@ -2615,17 +2950,52 @@ function renderAssetPieChart(rows) {
     const centerY = height / 2;
     const radius = Math.min(centerX, centerY) - 10;
 
-    // Aggregate by stock
+    const currentYear = new Date().getFullYear();
+    const portfolioYear = state.portfolio.calendar_year;
+
+    // Aggregate by stock — use current-month snapshot for in-progress years
     const stockTotals = {};
     let totalAssets = 0;
+    let chartLabel = "End-of-Year Assets (Dec 31)";
 
-    rows.forEach(row => {
-        const entity = row.entity_name;
-        const bal = row.closing_balance || 0;
-        if (!stockTotals[entity]) stockTotals[entity] = 0;
-        stockTotals[entity] += bal;
-        totalAssets += bal;
-    });
+    if (portfolioYear < currentYear) {
+        // Completed year: use Dec 31 closing_balance from A3 rows
+        rows.forEach(row => {
+            const entity = row.entity_name;
+            const bal = row.closing_balance || 0;
+            if (!stockTotals[entity]) stockTotals[entity] = 0;
+            stockTotals[entity] += bal;
+            totalAssets += bal;
+        });
+    } else {
+        // In-progress year: fetch current-month snapshot
+        try {
+            const result = await apiPost("/api/current-balance", state.portfolio);
+            if (result.success && result.stock_balances) {
+                const snapshotDate = result.snapshot_date;
+                const d = new Date(snapshotDate + "T00:00:00");
+                const formatted = d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+                chartLabel = `Assets as of ${formatted}`;
+                result.stock_balances.forEach(item => {
+                    stockTotals[item.entity_name] = (stockTotals[item.entity_name] || 0) + item.balance_inr;
+                    totalAssets += item.balance_inr;
+                });
+            }
+        } catch (e) {
+            console.warn("Failed to fetch current balance for pie chart:", e);
+            // Fallback: try closing_balance (likely 0 for current year)
+            rows.forEach(row => {
+                const entity = row.entity_name;
+                const bal = row.closing_balance || 0;
+                if (!stockTotals[entity]) stockTotals[entity] = 0;
+                stockTotals[entity] += bal;
+                totalAssets += bal;
+            });
+        }
+    }
+
+    // Update section title
+    if (chartTitleEl) chartTitleEl.textContent = `🧩 ${chartLabel} (INR)`;
 
     ctx.clearRect(0, 0, width, height);
     legendContainer.innerHTML = "";
@@ -2706,7 +3076,7 @@ const tutorialSteps = [
     { selector: ".add-sell-btn", title: "Sell Transactions", desc: "Record any sell transactions against a specific lot. The tool uses FIFO matching and tracks partial sells." },
     { selector: ".fetch-dividends-btn", title: "Fetch Dividends", desc: "Click to re-fetch dividend data from Yahoo Finance for the current calendar year. Dividends are also auto-fetched when adding a stock." },
     { selector: "#fetchAllDividendsBtn", title: "Fetch All Dividends", desc: "Batch-fetch dividend data for all stocks at once. Useful when starting a new year or refreshing data." },
-    { selector: "#calculateBtn", title: "Calculate A3 Values", desc: "Computes all 12 columns of Schedule FA Section A3, including initial value, peak value, closing balance, dividends, and sale proceeds — all in ₹ using SBI TT rates." },
+    { selector: "#calcFab", title: "Generate FA Report", desc: "Click the floating button to compute all 12 columns of Schedule FA Section A3, including initial value, peak value, closing balance, dividends, and sale proceeds — all in ₹ using SBI TT rates." },
     { selector: "#fetchRatesBtn", title: "SBI TT Rates", desc: "Downloads SBI TT Buying rates from the cloud. These rates are used to convert USD values to ₹ for ITR filing." },
     { selector: "#viewRatesBtn", title: "Monthly Rates Manager", desc: "View, edit, and lock SBI TT rates per month. Locked years are preserved during rate refreshes." },
     { selector: "#undoBtn", title: "Undo / Redo", desc: "Made a mistake? Undo any portfolio change with ↩ Undo or Ctrl+Z. Redo with ↪ Redo or Ctrl+Shift+Z. Supports up to 50 levels." },
@@ -2768,7 +3138,7 @@ function showTutorialStep(index) {
     tooltip.style.transform = "none"; // clear any previous centering transform
 
     if (target) {
-        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.scrollIntoView({ behavior: "auto", block: "center" });
         setTimeout(() => {
             const rect = target.getBoundingClientRect();
             const pad = 8;
@@ -2816,6 +3186,263 @@ function showTutorialStep(index) {
     }
 }
 
-// ===== Tab Switching — updated to show consolidated FY section =====
-// Override switchTab to also control consolidated FY section visibility
-const _origSwitchTab = typeof switchTab === "function" ? null : null; // placeholder
+// ===== Portfolio Dashboard =====
+function updateDashboard() {
+    const dash = document.getElementById("portfolioDashboard");
+    if (!dash) return;
+
+    const stocks = state.portfolio.stocks;
+    if (stocks.length === 0) {
+        dash.classList.add("hidden");
+        return;
+    }
+    dash.classList.remove("hidden");
+
+    document.getElementById("dashStockCount").textContent = stocks.length;
+    document.getElementById("dashLotCount").textContent = stocks.reduce((sum, s) => sum + (s.lots ? s.lots.length : 0), 0);
+
+    // Assets + Dividends only available after calculation
+    if (state.calculatedRows && state.calculatedRows.length > 0) {
+        const totalAssets = state.calculatedRows.reduce((s, r) => s + (r.closing_balance || 0), 0);
+        const totalDivs = state.calculatedRows.reduce((s, r) => s + (r.total_dividends || 0), 0);
+        document.getElementById("dashTotalAssets").textContent = "\u20b9" + Math.round(totalAssets).toLocaleString("en-IN");
+        document.getElementById("dashTotalDividends").textContent = "\u20b9" + Math.round(totalDivs).toLocaleString("en-IN");
+    } else {
+        document.getElementById("dashTotalAssets").textContent = "\u2014";
+        document.getElementById("dashTotalDividends").textContent = "\u2014";
+    }
+}
+
+// ===== Stock Filter =====
+function filterStockCards() {
+    const query = document.getElementById("stockFilterInput").value.toLowerCase().trim();
+    const cards = document.querySelectorAll(".stock-card");
+    let shown = 0;
+    cards.forEach(card => {
+        const ticker = (card.querySelector(".stock-ticker")?.textContent || "").toLowerCase();
+        const name = (card.querySelector(".stock-name")?.textContent || "").toLowerCase();
+        const match = !query || ticker.includes(query) || name.includes(query);
+        card.style.display = match ? "" : "none";
+        if (match) shown++;
+    });
+    const countEl = document.getElementById("stockFilterCount");
+    if (countEl) countEl.textContent = query ? `${shown} / ${cards.length}` : "";
+}
+
+// ===== Theme Toggle =====
+function toggleTheme() {
+    const root = document.documentElement;
+    const current = root.dataset.theme || "dark";
+    const next = current === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    document.getElementById("themeToggleBtn").textContent = next === "dark" ? "\ud83c\udf19" : "\u2600\ufe0f";
+    try { localStorage.setItem("fa_desk_theme", next); } catch(e) {}
+}
+
+function restoreTheme() {
+    try {
+        const saved = localStorage.getItem("fa_desk_theme");
+        if (saved) {
+            document.documentElement.dataset.theme = saved;
+            const btn = document.getElementById("themeToggleBtn");
+            if (btn) btn.textContent = saved === "dark" ? "\ud83c\udf19" : "\u2600\ufe0f";
+        }
+    } catch(e) {}
+}
+
+// ===== Auto-Save Draft to localStorage =====
+function autoSaveDraft() {
+    if (!state.isDirty || !state.username) return;
+    try {
+        const key = `fa_desk_draft_${state.username}_${state.portfolio.calendar_year}`;
+        localStorage.setItem(key, JSON.stringify({
+            portfolio: state.portfolio,
+            timestamp: Date.now(),
+        }));
+    } catch(e) {}
+}
+
+function checkForDraft(username, year) {
+    try {
+        const key = `fa_desk_draft_${username}_${year}`;
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        return data;
+    } catch(e) { return null; }
+}
+
+function clearDraft(username, year) {
+    try { localStorage.removeItem(`fa_desk_draft_${username}_${year}`); } catch(e) {}
+}
+
+
+
+// ===== Drag and Drop Stock Reordering =====
+function initDragAndDrop(card, stock) {
+    card.addEventListener("dragstart", (e) => {
+        card.classList.add("dragging");
+        e.dataTransfer.setData("text/plain", stock.id);
+        e.dataTransfer.effectAllowed = "move";
+    });
+    card.addEventListener("dragend", () => {
+        card.classList.remove("dragging");
+        document.querySelectorAll(".stock-card.drag-over").forEach(c => c.classList.remove("drag-over"));
+    });
+    card.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        card.classList.add("drag-over");
+    });
+    card.addEventListener("dragleave", () => {
+        card.classList.remove("drag-over");
+    });
+    card.addEventListener("drop", (e) => {
+        e.preventDefault();
+        card.classList.remove("drag-over");
+        const draggedId = e.dataTransfer.getData("text/plain");
+        if (draggedId === stock.id) return;
+
+        pushUndoSnapshot();
+        const stocks = state.portfolio.stocks;
+        const fromIdx = stocks.findIndex(s => s.id === draggedId);
+        const toIdx = stocks.findIndex(s => s.id === stock.id);
+        if (fromIdx < 0 || toIdx < 0) return;
+
+        const [moved] = stocks.splice(fromIdx, 1);
+        stocks.splice(toIdx, 0, moved);
+
+        // Re-render DOM order
+        const container = document.getElementById("stockCards");
+        container.innerHTML = "";
+        stocks.forEach(s => renderStockCard(s));
+        showToast("Stock order updated", "info", 1500);
+    });
+}
+
+// ===== CSV Lot Import =====
+function initCsvLotImport(card, stock) {
+    const btn = card.querySelector(".import-lots-csv-btn");
+    const input = card.querySelector(".import-lots-csv-input");
+    if (!btn || !input) return;
+
+    btn.addEventListener("click", () => input.click());
+    input.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const text = ev.target.result;
+            const lines = text.trim().split("\n");
+            if (lines.length < 2) { showToast("CSV has no data rows", "warning"); return; }
+
+            pushUndoSnapshot();
+            const header = lines[0].toLowerCase();
+            let imported = 0, skipped = 0;
+
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(",").map(c => c.trim().replace(/^["']|["']$/g, ""));
+                if (cols.length < 3) { skipped++; continue; }
+
+                const buy_date = cols[0];
+                const quantity = parseFloat(cols[1]);
+                const buy_price = parseFloat(cols[2]);
+
+                if (!buy_date || isNaN(quantity) || isNaN(buy_price) || quantity <= 0) {
+                    skipped++; continue;
+                }
+
+                const lot = { id: generateId(), buy_date, quantity, buy_price };
+                stock.lots.push(lot);
+                renderLotRow(card, stock, lot);
+                imported++;
+            }
+            showToast(`Imported ${imported} lot(s)${skipped ? `, skipped ${skipped}` : ""}`, imported > 0 ? "success" : "warning");
+            updateDashboard();
+        };
+        reader.readAsText(file);
+        input.value = ""; // reset
+    });
+}
+
+// ===== Year-over-Year Comparison =====
+function renderYoYComparison() {
+    // Remove old section if exists
+    const old = document.getElementById("yoySection");
+    if (old) old.remove();
+
+    if (!state.calculatedRows || state.calculatedRows.length === 0) return;
+
+    const year = state.portfolio.calendar_year;
+    const prevKey = `fa_desk_calc_${state.username}_${year - 1}`;
+    let prevData;
+    try { prevData = JSON.parse(localStorage.getItem(prevKey)); } catch(e) {}
+
+    if (!prevData || !prevData.rows || prevData.rows.length === 0) return;
+
+    const curAssets = state.calculatedRows.reduce((s, r) => s + (r.closing_balance || 0), 0);
+    const curDivs = state.calculatedRows.reduce((s, r) => s + (r.total_dividends || 0), 0);
+    const prevAssets = prevData.rows.reduce((s, r) => s + (r.closing_balance || 0), 0);
+    const prevDivs = prevData.rows.reduce((s, r) => s + (r.total_dividends || 0), 0);
+
+    const section = document.createElement("div");
+    section.id = "yoySection";
+    section.className = "yoy-section";
+
+    const deltaAssets = curAssets - prevAssets;
+    const deltaDivs = curDivs - prevDivs;
+    const pctAssets = prevAssets ? ((deltaAssets / prevAssets) * 100).toFixed(1) : "N/A";
+    const pctDivs = prevDivs ? ((deltaDivs / prevDivs) * 100).toFixed(1) : "N/A";
+
+    section.innerHTML = `
+        <h3>\ud83d\udcc8 Year-over-Year: CY${year-1} \u2192 CY${year}</h3>
+        <div class="yoy-grid">
+            <div class="yoy-card">
+                <div class="yoy-label">Total Assets</div>
+                <div class="yoy-value">\u20b9${Math.round(curAssets).toLocaleString("en-IN")}</div>
+                <div class="yoy-delta ${deltaAssets >= 0 ? 'positive' : 'negative'}">${deltaAssets >= 0 ? '\u2191' : '\u2193'} ${pctAssets}%</div>
+            </div>
+            <div class="yoy-card">
+                <div class="yoy-label">Total Dividends</div>
+                <div class="yoy-value">\u20b9${Math.round(curDivs).toLocaleString("en-IN")}</div>
+                <div class="yoy-delta ${deltaDivs >= 0 ? 'positive' : 'negative'}">${deltaDivs >= 0 ? '\u2191' : '\u2193'} ${pctDivs}%</div>
+            </div>
+            <div class="yoy-card">
+                <div class="yoy-label">CY${year-1} Assets</div>
+                <div class="yoy-value" style="color:var(--text-secondary)">\u20b9${Math.round(prevAssets).toLocaleString("en-IN")}</div>
+                <div class="yoy-delta" style="color:var(--text-muted)">Previous year</div>
+            </div>
+        </div>
+    `;
+
+    const resultsSection = document.getElementById("resultsSection");
+    if (resultsSection) resultsSection.appendChild(section);
+}
+
+// Save calculation results for YoY
+function saveCalcResultsForYoY() {
+    if (!state.username || !state.calculatedRows || state.calculatedRows.length === 0) return;
+    try {
+        const key = `fa_desk_calc_${state.username}_${state.portfolio.calendar_year}`;
+        localStorage.setItem(key, JSON.stringify({ rows: state.calculatedRows }));
+    } catch(e) {}
+}
+
+// ===== Year Change Guard =====
+function addYearChangeGuard() {
+    const mainSelect = document.getElementById("yearSelect");
+    const originalHandler = mainSelect.onchange; // won't exist (addEventListener used)
+
+    // We need to intercept — wrap in new listener
+    // Remove old by re-attaching. Since we can't remove anonymous, we override with a capturing listener.
+    mainSelect.addEventListener("change", function guardHandler(e) {
+        if (state.isDirty) {
+            if (!confirm("You have unsaved changes. Switch year and discard them?")) {
+                e.stopImmediatePropagation();
+                mainSelect.value = state.portfolio.calendar_year;
+                return;
+            }
+        }
+    }, true); // capturing phase = runs first
+}
